@@ -10,3 +10,5 @@ TODO:
 - implement native numpy vectorization stuff (and release the GIL)
 - make the routines more vectorization-friendly
 - re-implement the game's timestep logic in a vectorizable way (to allow cheaply comparing alternative policies)
+- implement an AST corresponding to the game's expression parsing, to use for optimization routines seeking to find efficient prestige/supremacy formulae
+
