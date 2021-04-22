@@ -10,8 +10,8 @@ extern "C" {
 #include <stdbool.h>
 
 typedef double hugenum_x_t;
-#define HUGENUM_X_MAX 1e100
-#define HUGENUM_X_MIN 2
+#define HUGENUM_X_MAX 1e6
+#define HUGENUM_X_MIN 6
 
 typedef uint_fast8_t hugenum_e_t;
 #define HUGENUM_E_MAX UINT_FAST8_MAX
