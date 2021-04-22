@@ -12,7 +12,7 @@ ext_modules.append(ext)
 
 setup(name='exptypes',
       version='0.1',
-      description='NumPy type extensions',
+      description='Hugenum type used by the Exponential Idle game.',
       packages=['exptypes',
                 'exptypes.hugenum',
                 ],
