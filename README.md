@@ -5,10 +5,12 @@ This was originally started as an exercise to learn how to use the Python C api,
 TODO:
 - fix stringification ops
 - add unit tests and fix (or at least document) arithmetical edge cases
+- release the GIL
+- add numpy vectorization routines
+- implement compatibility with numba JIT compilation
 - reproduce the game's cost functions
 - parse the game's save data
-- implement native numpy vectorization stuff (and release the GIL)
-- make the routines more vectorization-friendly
-- re-implement the game's timestep logic in a vectorizable way (to allow cheaply comparing alternative policies)
-- implement an AST corresponding to the game's expression parsing, to use for optimization routines seeking to find efficient prestige/supremacy formulae
+- re-implement the timestep logic
+- implement a parser/lexer/AST for the game's expressions
+- implement optimization routines to crunch through the game
 
