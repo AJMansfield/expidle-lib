@@ -17,7 +17,7 @@ void _order_by_value(hugenum *q1, hugenum *q2);
 inline void
 _normalize_up(hugenum_x_t *x, hugenum_e_t *e)
 {
-    while ( *x >= HUGENUM_X_MAX && *e < UINT_FAST8_MAX ) {
+    while ( *x >= HUGENUM_X_MAX && *e < HUGENUM_E_MAX ) {
         *x = log10(*x);
         ++*e;
     }
@@ -35,19 +35,13 @@ _normalize_down(hugenum_x_t *x, hugenum_e_t *e)
 inline void
 _normalize(hugenum_x_t *x, hugenum_e_t *e)
 {
-    while ( *x >= HUGENUM_X_MAX && *e < HUGENUM_E_MAX ) {
-        *x = log10(*x);
-        ++*e;
-    }
-    while ( *x < HUGENUM_X_MIN && *e > HUGENUM_E_MIN ) {
-        *x = pow(10, *x);
-        --*e;
-    }
+    _normalize_up(x, e);
+    _normalize_down(x, e);
 }
 
 
 hugenum
-hugenum_at_e(hugenum q, hugenum_e_t e)
+hugenum_at_e(hugenum q, hugenum_e_t e) // denormalizes a hugenum to put it at other e values
 {
     hugenum r = q;
     for (; r.e > e; --r.e) {
