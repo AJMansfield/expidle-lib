@@ -14,12 +14,6 @@ void _swap(hugenum *q1, hugenum *q2 );
 void _order_by_magnitude(hugenum *q1, hugenum *q2);
 void _order_by_value(hugenum *q1, hugenum *q2);
 
-void
-_print(hugenum q)
-{
-    fprintf(stderr, "%g,%d,%s\n", q.x, q.e, q.p?"+":"-");
-}
-
 inline void
 _normalize_up(hugenum_x_t *x, hugenum_e_t *e)
 {
