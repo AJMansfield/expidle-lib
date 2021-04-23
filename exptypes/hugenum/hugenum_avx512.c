@@ -1,7 +1,4 @@
 
-// Needs to be compiled with the Intel C Compiler.
-// GCC doesn't have the full set of intrinsics for whatever reason.
-
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -32,7 +29,9 @@
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })  
 
+#define COUNT 128
 #define VEC_LEN 8
+#define VEC_CNT COUNT / VEC_LEN 
 
 #define HUGENUM_X_MAX 1e6
 #define HUGENUM_X_MIN 6.0
@@ -43,43 +42,42 @@ typedef struct {
     double x;
     int_fast8_t e;
     _Bool p;
+    _Bool z;
 } hugenum;
 
 typedef struct {
     __m512d x; // mantissa
     __m256i e; // exponent
     __mmask8 p; // positive
-    __mmask8 z; // exists flag (should probably replace with a stripmine/tail algorithm instead)
+    __mmask8 z; // exists
 } hugenum8;
 
 hugenum8 mk_hugenum8(hugenum buf[], size_t count) {
     hugenum8 r;
     int n = min(count, VEC_LEN);
-    for (int i = 0; i < n; ++i) {
-        ((double*) &r.x)[i] = buf[i].x;
-        ((int*) &r.e)[i] = buf[i].e;
-        r.p |= (buf[i].p << i);
-        r.z |= (1 << i);
+    for (int i = 0; i < VEC_LEN; ++i) {
+        if (i < count) {
+            ((double*) &r.x)[i] = buf[i].x;
+            ((int*) &r.e)[i] = buf[i].e;
+            r.p = (r.p & ~(1<<i)) | (buf[i].p << i);
+            r.z = (r.z & ~(1<<i)) | (buf[i].z << i);
+        } else {
+            ((double*) &r.x)[i] = 0.0;
+            ((int*) &r.e)[i] = 0;
+            r.p |= 1 << i;
+            r.z &= ~(1 << i);
+        }
     }
 
     return r;
 }
-size_t un_hugenum8(hugenum buf[], hugenum8 r) {
-    size_t n = 0;
-    size_t off = 0;
-
+void un_hugenum8(hugenum buf[VEC_LEN], hugenum8 r) {
     for (size_t i = 0; i < VEC_LEN; ++i) {
-        size_t j = i - off;
-        if ((r.z & (1<<i))>>i) {
-            buf[j].x = ((double*) &r.x)[i];
-            buf[j].e = ((int*) &r.e)[i];
-            buf[j].p = (r.p & (1<<i))>>i;
-            ++n;
-        } else {
-            ++off;
-        }
+        buf[i].x = ((double*) &r.x)[i];
+        buf[i].e = ((int*) &r.e)[i];
+        buf[i].p = (r.p & (1<<i))>>i;
+        buf[i].z = (r.z & (1<<i))>>i;
     }
-    return n;
 }
 
 size_t load_vec(hugenum8 data[]){
@@ -95,6 +93,7 @@ size_t load_vec(hugenum8 data[]){
             &buf[idx % VEC_LEN].e,
             &buf[idx % VEC_LEN].p
         );
+        buf[idx % VEC_LEN].z = 1;
         if (scan_result < 0 || scan_result == EOF) break;
         if (++idx % VEC_LEN == 0) {
             printf("full row\n");
@@ -105,27 +104,41 @@ size_t load_vec(hugenum8 data[]){
         printf("partial row %d\n", idx % VEC_LEN);
         data[cnt++] = mk_hugenum8(buf, idx % VEC_LEN);
     }
-    return idx;
+    return cnt;
 }
 
-void print_vec(hugenum8 data[], int count){
+void print_vec(hugenum8 data[], size_t count){
     hugenum buf[VEC_LEN];
-    size_t cnt = 0;
-    size_t idx = 0;
-    int scan_result;
-
-    cnt = un_hugenum8(buf, data[0]);
-
-    while (cnt-- > 0) {
-        printf("%g,%d,%d\n",
-            buf[idx % VEC_LEN].x,
-            buf[idx % VEC_LEN].e,
-            buf[idx % VEC_LEN].p
-        );
-        ++idx;
+    
+    for (size_t i = 0; i < count; ++i) {
+        un_hugenum8(buf, data[i]);
+        for (size_t j = 0; j < VEC_LEN; ++j) {
+            if (buf[j].z){
+                printf("%g,%d,%d\n",
+                    buf[j].x,
+                    buf[j].e,
+                    buf[j].p
+                );
+            }
+        }
     }
 }
-
+void print_hn(hugenum8 data){
+    hugenum buf[VEC_LEN];
+    un_hugenum8(buf, data);
+    for (size_t j = 0; j < VEC_LEN; ++j) {
+        if (buf[j].z){
+            printf("%2g ",
+                buf[j].x //,
+                // buf[j].e,
+                // buf[j].p
+            );
+        } else {
+            printf(" ---- ");
+        }
+    }
+    printf("\n");
+}
 
 
 __mmask8 mask_blend_mask(__mmask8 k, __mmask8 a, __mmask8 b){
@@ -157,7 +170,7 @@ __mmask8 mag_less(hugenum8 q1, hugenum8 q2)
 
 void order_by_mag(hugenum8 *q1, hugenum8 *q2) {
     __mmask8 swp = mag_less(*q1, *q2);
-    hugenum8 temp = *q1;
+    hugenum8 temp = *q2;
     *q2 = mask_blend_hugenum8(swp, *q2, *q1);
     *q1 = mask_blend_hugenum8(swp, *q1, temp);
 }
@@ -197,8 +210,16 @@ int main(int argc, char** argv) {
 
     size_t n = load_vec(data);
 
-    data[0] = normalize(data[0]);
+    for (size_t i = 0; i < n; ++i){
+        data[i] = normalize(data[i]);
+    }
+    
+    print_vec(data, n);
 
+    print_hn(data[0]);
+    order_by_mag(&data[0], &data[1]);
+    print_hn(data[0]);
+    // printf("\n");
     print_vec(data, n);
 
 
