@@ -128,9 +128,9 @@ void print_hn(hugenum8 data){
     un_hugenum8(buf, data);
     for (size_t j = 0; j < VEC_LEN; ++j) {
         if (buf[j].z){
-            printf("%2g ",
-                buf[j].x //,
-                // buf[j].e,
+            printf("%2ge%d ",
+                buf[j].x, //,
+                buf[j].e //,
                 // buf[j].p
             );
         } else {
@@ -210,7 +210,7 @@ hugenum8 normalize(hugenum8 q) {
     return q;
 }
 
-hugenum8 add(hugenum8 q1, hugenum8 q2) {
+hugenum8 hn_add(hugenum8 q1, hugenum8 q2) {
     const __m512d ONE = _mm512_set1_pd(1.0);
     const __m512d ZERO = _mm512_set1_pd(0.0);
     const __m512d NEG_ONE = _mm512_set1_pd(-1.0);
@@ -244,10 +244,10 @@ hugenum8 add(hugenum8 q1, hugenum8 q2) {
 
     // print_pd("%2g ", dx);
 
-    __m512d q2x = _mm512_mask_log10_pd(q2.x, z & q2e0 & q1e1, q2.x);
+    __m512d q2x = _mm512_mask_log10_pd(q2.x, z & q1e1 & q2e0, q2.x);
     dx = _mm512_mask_sub_pd(dx, z & q1e1, q2x, q1.x); // q1.e = 1 case
     dx = _mm512_mask_exp10_pd(dx, z & q1e1, dx);
-    dx = _mm512_mask_fmadd_pd(dx, z & q1e1, sign, ONE);
+    dx = _mm512_mask_fmadd_pd(dx, z & q1e1, sign, ONE); // TODO benchmark if doing all this masked is faster or not.
     dx = _mm512_mask_log10_pd(dx, z & q1e1, dx);
 
     // print_pd("%2g ", dx);
@@ -261,6 +261,64 @@ hugenum8 add(hugenum8 q1, hugenum8 q2) {
     // print_pd("%2g ", q1.x);
 
     return q1;
+}
+
+hugenum8 hn_exp10(hugenum8 q) {
+    const __m512d X_NAN = _mm512_set1_pd(NAN);
+    const __m512d X_ZERO = _mm512_set1_pd(0.0);
+    const __m512d X_NEGONE = _mm512_set1_pd(-1.0);
+    const __m256i E_ZERO = _mm256_set1_epi32(0);
+    const __m256i E_ONE = _mm256_set1_epi32(1);
+
+    __mmask8 do_inc = q.z & q.p; // e == 0
+    q.e = _mm256_mask_add_epi32(q.e, do_inc, q.e, E_ONE); // else q.e = q.e - 1
+
+    __mmask8 do_exp = _mm256_cmp_epi32_mask(q.e, E_ZERO, _MM_CMPINT_EQ) & q.z & ~q.p; // e == 0
+    __m512d negx = _mm512_mul_pd(q.x, X_NEGONE); // do_exp is only if !p (ie we're negative)
+    q.x = _mm512_mask_exp10_pd(q.x, do_exp, negx); // exp10(x) if e == 0 and !p else 0
+
+    __mmask8 do_zero = ~_mm256_cmp_epi32_mask(q.e, E_ZERO, _MM_CMPINT_EQ) & q.z & ~q.p; // e == 0
+    q.x = _mm512_mask_blend_pd(do_zero, q.x, X_ZERO);
+    q.e = _mm256_mask_blend_epi32(do_zero, q.e, E_ZERO);
+
+    q.p = q.p | q.z;
+
+    return normalize(q);
+}
+
+hugenum8 hn_log10(hugenum8 q) {
+    const __m512d X_NAN = _mm512_set1_pd(NAN);
+    const __m512d X_ZERO = _mm512_set1_pd(0.0);
+    const __m256i E_ZERO = _mm256_set1_epi32(0);
+    const __m256i E_ONE = _mm256_set1_epi32(1);
+
+    q.x = _mm512_mask_blend_pd(q.p, X_NAN, q.x); // log of negative number is undefined
+
+    __mmask8 qe0 = _mm256_mask_cmp_epi32_mask(q.z & q.p, q.e, E_ZERO, _MM_CMPINT_EQ); // if q.p and q.z and q.e>0
+    q.x = _mm512_mask_log10_pd(q.x, qe0, q.x); // x = log10(x)
+    q.p = q.p ^ _mm512_mask_cmp_pd_mask(qe0, q.x, X_ZERO, _CMP_LT_OQ); // toggle positive bit if log was negative
+    q.x = _mm512_mask_abs_pd(q.x, qe0, q.x); // and do our absolute value
+
+    q.e = _mm256_mask_sub_epi32(q.e, ~qe0, q.e, E_ONE); // else q.e = q.e - 1
+
+    return normalize(q);
+}
+
+hugenum8 hn_mul(hugenum8 q1, hugenum8 q2) {
+    __mmask8 rp = ~ q1.p ^ q2.p;
+    q1.p = ~0; q2.p = ~0;
+    q1 = hn_log10(q1);
+    q2 = hn_log10(q2);
+
+    hugenum8 r = hn_add(q1, q2);
+    r = hn_exp10(r);
+    r.p = rp;
+    return normalize(r);
+}
+
+hugenum8 hn_pow(hugenum8 q1, hugenum8 q2) {
+    hugenum8 r = hn_exp10(hn_add( hn_log10(q1), q2));
+    return normalize(r);
 }
 
 int main(int argc, char** argv) {
@@ -280,10 +338,10 @@ int main(int argc, char** argv) {
     // print_hn(data[0]);
     // printf("\n");
 
-    data[2] = add(data[0], data[1]);
+    data[2] = hn_pow(data[1], data[0]);
     ++n;
 
-    print_vec(data, n);
+    print_vec(&data[2], 1);
 
 
     // printf("%d,%d\nx=%d,%d\ne=%d,%d\np=%d,%d\nz=%d,%d",
