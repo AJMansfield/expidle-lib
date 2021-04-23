@@ -139,6 +139,12 @@ void print_hn(hugenum8 data){
     }
     printf("\n");
 }
+void print_pd(char* f, __m512d data){
+    for (size_t j = 0; j < VEC_LEN; ++j) {
+        printf(f, ((double*) &data)[j]);
+    }
+    printf("\n");
+}
 
 
 __mmask8 mask_blend_mask(__mmask8 k, __mmask8 a, __mmask8 b){
@@ -204,6 +210,59 @@ hugenum8 normalize(hugenum8 q) {
     return q;
 }
 
+hugenum8 add(hugenum8 q1, hugenum8 q2) {
+    const __m512d ONE = _mm512_set1_pd(1.0);
+    const __m512d ZERO = _mm512_set1_pd(0.0);
+    const __m512d NEG_ONE = _mm512_set1_pd(-1.0);
+    const __m256i E_ZERO = _mm256_set1_epi32(0);
+    const __m256i E_ONE = _mm256_set1_epi32(1);
+    
+    order_by_mag(&q1,&q2);
+
+    // print_hn(q1);
+    // print_hn(q2);
+
+    __mmask8 z = q1.z & q2.z;
+
+    // printf("z = %02x\n", z);
+    
+    __mmask8 q1e0 = _mm256_mask_cmp_epi32_mask(z, q1.e, E_ZERO, _MM_CMPINT_EQ);
+    __mmask8 q1e1 = _mm256_mask_cmp_epi32_mask(z, q1.e, E_ONE, _MM_CMPINT_EQ);
+    __mmask8 q2e0 = _mm256_mask_cmp_epi32_mask(z, q2.e, E_ZERO, _MM_CMPINT_EQ);
+
+    // printf("q1e0 = %02x, q1e1 = %02x, q2e0 = %02x,\n", q1e0, q1e1, q2e0);
+
+    __m512d sign = _mm512_mask_blend_pd(q1.p ^ q2.p, ONE, NEG_ONE);
+
+    // print_pd("%2g ", sign);
+
+    __m512d dx = ZERO; // q1e > 1 case
+
+    // print_pd("%2g ", dx);
+
+    dx = _mm512_mask_mul_pd(dx, z & q1e0, sign, q2.x); // q1.e = 0 case
+
+    // print_pd("%2g ", dx);
+
+    __m512d q2x = _mm512_mask_log10_pd(q2.x, z & q2e0 & q1e1, q2.x);
+    dx = _mm512_mask_sub_pd(dx, z & q1e1, q2x, q1.x); // q1.e = 1 case
+    dx = _mm512_mask_exp10_pd(dx, z & q1e1, dx);
+    dx = _mm512_mask_fmadd_pd(dx, z & q1e1, sign, ONE);
+    dx = _mm512_mask_log10_pd(dx, z & q1e1, dx);
+
+    // print_pd("%2g ", dx);
+    
+    __mmask8 nanz = _mm512_mask_fpclass_pd_mask(z, dx, 0x81); // SNAN and QNAN
+    
+    // printf("nans = %02x\n", nanz);
+
+    q1.x = _mm512_mask_add_pd(q1.x, ~nanz, q1.x, dx);
+
+    // print_pd("%2g ", q1.x);
+
+    return q1;
+}
+
 int main(int argc, char** argv) {
 
     hugenum8 data[VEC_CNT];
@@ -216,10 +275,14 @@ int main(int argc, char** argv) {
     
     print_vec(data, n);
 
-    print_hn(data[0]);
-    order_by_mag(&data[0], &data[1]);
-    print_hn(data[0]);
+    // print_hn(data[0]);
+    // order_by_mag(&data[0], &data[1]);
+    // print_hn(data[0]);
     // printf("\n");
+
+    data[2] = add(data[0], data[1]);
+    ++n;
+
     print_vec(data, n);
 
 
